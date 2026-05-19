@@ -130,7 +130,8 @@ db.prepare("UPDATE users SET role = 'superadmin' WHERE role = 'admin'").run();
 
 const existing = db.prepare('SELECT id FROM users WHERE username = ?').get('admin');
 if (!existing) {
-  const hash = bcrypt.hashSync('admin1234', 10);
+  const initPassword = process.env.ADMIN_PASSWORD || 'admin1234';
+  const hash = bcrypt.hashSync(initPassword, 10);
   db.prepare('INSERT INTO users (username, password_hash, role, active) VALUES (?, ?, ?, 1)').run('admin', hash, 'superadmin');
 }
 

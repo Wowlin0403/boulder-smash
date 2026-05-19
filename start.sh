@@ -1,15 +1,16 @@
 #!/bin/bash
 echo "Starting BLOC Scoring System..."
+ROOT="$(cd "$(dirname "$0")" && pwd)"
 
 # Start backend
-cd "$(dirname "$0")/backend"
+cd "$ROOT/backend"
 node src/index.js &
 BACKEND_PID=$!
 echo "Backend started (PID: $BACKEND_PID) → http://localhost:3001"
 
 # Start frontend
-cd "$(dirname "$0")/frontend"
-npm run dev &
+cd "$ROOT/frontend"
+npm run dev -- --host &
 FRONTEND_PID=$!
 echo "Frontend started (PID: $FRONTEND_PID) → http://localhost:5173"
 
