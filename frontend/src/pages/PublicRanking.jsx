@@ -1,5 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
+import { QRCodeSVG } from 'qrcode.react';
 import { publicAPI } from '../api';
 
 const ROUND_NAMES = { smash: '大亂鬥', final: '決賽' };
@@ -144,7 +145,7 @@ function CutoffLine({ compact }) {
 function SmashRow({ a, compact, badge }) {
   const isDns = !!a.is_dns;
   const score = a.total_score;
-  const hasScore = !isDns && score != null && score > 0;
+  const isGuaranteed = !!a.is_guaranteed_advanced;
   return (
     <div className={`flex items-center border-b border-border/30 last:border-b-0 hover:bg-s2/50 transition-colors ${compact ? 'gap-3 px-4 py-2' : 'gap-5 px-5 py-3.5'}`}>
       {badge ? (
@@ -158,12 +159,20 @@ function SmashRow({ a, compact, badge }) {
         <div className={`font-bold whitespace-nowrap overflow-hidden text-ellipsis ${isDns ? 'text-txt3' : 'text-txt'} ${compact ? 'text-sm' : 'text-[15px]'}`}>{a.name}</div>
         <div className={`font-mono text-txt3 mt-0.5 ${compact ? 'text-[10px]' : 'text-[11px]'}`}>{a.bib}</div>
       </div>
-      <div className="font-condensed font-black text-right flex-shrink-0 leading-none" style={{
-        color: isDns ? '#f03a5f' : 'rgb(var(--txt))',
-        fontSize: compact ? (isDns ? 16 : 20) : (isDns ? 22 : 26),
-        width: compact ? 64 : 80,
-      }}>
-        {isDns ? 'DNS' : Number(score ?? 0).toFixed(1)}
+      <div className="flex items-center gap-2 flex-shrink-0">
+        {isGuaranteed && (
+          <span className="font-mono font-bold rounded border px-1.5 py-0.5 leading-none whitespace-nowrap"
+            style={{ fontSize: compact ? 11 : 13, color: 'rgb(var(--gold))', borderColor: 'rgb(var(--gold) / 0.6)', background: 'rgb(var(--gold) / 0.08)' }}>
+            保障晉級
+          </span>
+        )}
+        <div className="font-condensed font-black text-right leading-none" style={{
+          color: isDns ? '#f03a5f' : 'rgb(var(--txt))',
+          fontSize: compact ? (isDns ? 16 : 20) : (isDns ? 22 : 26),
+          width: compact ? 64 : 80,
+        }}>
+          {isDns ? 'DNS' : Number(score ?? 0).toFixed(1)}
+        </div>
       </div>
     </div>
   );
@@ -322,9 +331,14 @@ export default function PublicRanking() {
   }, [round, catAthletes]);
 
   const quota = activeCatData?.final_quota || 0;
-  const cutoffRank = round === 'smash' && quota > 0 && catAthletes.length >= quota
-    ? catAthletes[quota - 1]?.rank ?? null
-    : null;
+  // cutoffIdx = 最後一位「正常晉級（非保障）」選手的索引
+  const cutoffIdx = useMemo(() => {
+    if (round !== 'smash') return -1;
+    let idx = -1;
+    catAthletes.forEach((a, i) => { if (a.is_advanced && !a.is_guaranteed_advanced) idx = i; });
+    return idx;
+  }, [round, catAthletes]);
+  const cutoffRank = cutoffIdx >= 0 ? (catAthletes[cutoffIdx]?.rank ?? null) : null;
 
   const totalPages = Math.max(1, Math.ceil(catAthletes.length / pageSize));
   const safePage = Math.min(currentPage, totalPages - 1);
@@ -377,7 +391,7 @@ export default function PublicRanking() {
     const page = catAthletes.slice(pageStart, pageStart + pageSize);
     const padCount = pageSize - page.length;
     const pageEnd = pageStart + page.length;
-    const showCutoffAtEnd = cutoffRank !== null && quota < catAthletes.length && quota === pageEnd;
+    const showCutoffAtEnd = cutoffRank !== null && cutoffIdx + 1 < catAthletes.length && cutoffIdx + 1 === pageEnd;
 
     return (
       <div>
@@ -385,7 +399,7 @@ export default function PublicRanking() {
           const gi = pageStart + li;
           const isDns = !!a.is_dns;
           const prevA = gi > 0 ? catAthletes[gi - 1] : null;
-          const skipBoundary = gi === quota && gi === pageStart;
+          const skipBoundary = gi === cutoffIdx + 1 && gi === pageStart;
           const showCutoff = !isDns && !skipBoundary && cutoffRank !== null && a.rank > cutoffRank && (!prevA || prevA.rank <= cutoffRank);
           return (
             <div key={a.athlete_id}>
@@ -485,6 +499,7 @@ export default function PublicRanking() {
               <div className="text-txt3/60">{countdown}s 後刷新</div>
             </div>
             <button onClick={loadRanking} className="border border-border2 text-txt2 font-mono text-xs px-3 py-2 rounded hover:border-txt2 hover:text-txt transition-colors">↻</button>
+            <QRButton id={id} />
           </div>
         </div>
       </div>
@@ -641,6 +656,44 @@ export default function PublicRanking() {
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function QRButton({ id }) {
+  const navigate = useNavigate();
+  const [show, setShow] = useState(false);
+  const scoresUrl = `${window.location.origin}/public/${id}/scores`;
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setShow(v => !v)}
+        title="選手成績查詢 QR Code"
+        className="border border-border2 text-txt2 font-mono text-xs px-3 py-2 rounded hover:border-lime hover:text-lime transition-colors"
+      >
+        ▦
+      </button>
+      {show && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setShow(false)} />
+          <div className="absolute right-0 top-full mt-2 z-50 bg-s1 border border-border rounded-xl p-5 shadow-xl"
+            onClick={e => e.stopPropagation()}>
+            <div className="font-mono text-[10px] tracking-widest uppercase text-txt3 mb-3 text-center">
+              選手成績查詢
+            </div>
+            <button
+              onClick={() => { setShow(false); navigate(`/public/${id}/scores`); }}
+              className="block mb-3 rounded-lg overflow-hidden border-2 border-transparent hover:border-lime transition-colors"
+            >
+              <QRCodeSVG value={scoresUrl} size={160} bgColor="#1a1a1a" fgColor="#c8f135" />
+            </button>
+            <div className="font-mono text-[9px] text-txt3/60 text-center break-all max-w-[160px]">
+              {scoresUrl}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

@@ -13,10 +13,13 @@ router.get('/events/:id/categories', (req, res) => {
   res.json(db.prepare('SELECT * FROM categories WHERE event_id = ? ORDER BY id').all(req.params.id));
 });
 
-// Smash ranking — returns flat array of { rank, athlete_id, bib, name, category_id, total_score }
+// Smash ranking — returns flat array of { rank, athlete_id, bib, name, category_id, total_score, is_advanced, is_guaranteed_advanced }
 router.get('/events/:id/ranking/smash', (req, res) => {
   const { id } = req.params;
   if (!db.prepare('SELECT id FROM events WHERE id = ?').get(id)) return res.status(404).json({ error: '賽事不存在' });
+
+  const categories = db.prepare('SELECT * FROM categories WHERE event_id = ?').all(id);
+  const catMap = Object.fromEntries(categories.map(c => [c.id, c]));
 
   const athletes = db.prepare('SELECT a.*, c.name as category_name FROM athletes a LEFT JOIN categories c ON a.category_id = c.id WHERE a.event_id = ? ORDER BY a.bib').all(id);
 
@@ -54,18 +57,40 @@ router.get('/events/:id/ranking/smash', (req, res) => {
     byCat[a.category_id].push({ ...a, score: calcSmashScore(routeScores), is_dns: dnsSet.has(a.id) });
   });
 
+  const advancedIds = getAdvancedIds(db, id);
+
   const result = [];
-  Object.values(byCat).forEach(group => {
+  Object.entries(byCat).forEach(([catId, group]) => {
     assignSmashRanks(group);
-    group.forEach(a => result.push({
-      rank: a.rank,
-      athlete_id: a.id,
-      bib: a.bib,
-      name: a.name,
-      category_id: a.category_id,
-      total_score: a.score,
-      is_dns: a.is_dns,
-    }));
+
+    const cat = catMap[parseInt(catId)];
+    const quota = (cat?.rounds === 2 && cat?.final_quota) ? cat.final_quota : 0;
+
+    // 計算正常晉級的 cutoff score（不含保障邏輯）
+    let normalCutoffScore = null;
+    if (quota > 0) {
+      const nonDnsSorted = group.filter(a => !a.is_dns).sort((a, b) => b.score - a.score);
+      if (nonDnsSorted.length >= quota) normalCutoffScore = nonDnsSorted[quota - 1].score;
+      else normalCutoffScore = nonDnsSorted.length > 0 ? nonDnsSorted[nonDnsSorted.length - 1].score : null;
+    }
+
+    group.forEach(a => {
+      const is_advanced = advancedIds ? advancedIds.has(a.id) : false;
+      const normallyAdvanced = normalCutoffScore !== null && !a.is_dns && a.score >= normalCutoffScore;
+      const is_guaranteed_advanced = is_advanced && !normallyAdvanced;
+
+      result.push({
+        rank: a.rank,
+        athlete_id: a.id,
+        bib: a.bib,
+        name: a.name,
+        category_id: a.category_id,
+        total_score: a.score,
+        is_dns: a.is_dns,
+        is_advanced,
+        is_guaranteed_advanced,
+      });
+    });
   });
 
   res.json(result);
@@ -154,6 +179,74 @@ router.get('/events/:id/ranking/final', (req, res) => {
   });
 
   res.json(result);
+});
+
+// ── Athlete score lookup (public) ─────────────────────────────────────────────
+
+router.get('/events/:id/athletes', (req, res) => {
+  const athletes = db.prepare(`
+    SELECT a.id, a.bib, a.name, a.category_id, c.name as category_name
+    FROM athletes a
+    LEFT JOIN categories c ON a.category_id = c.id
+    WHERE a.event_id = ?
+    ORDER BY c.name, CAST(a.bib AS INTEGER), a.bib
+  `).all(req.params.id);
+  res.json(athletes);
+});
+
+router.get('/events/:id/athlete-scores', (req, res) => {
+  const { athlete_id } = req.query;
+  if (!athlete_id) return res.status(400).json({ error: 'athlete_id 必填' });
+
+  const athlete = db.prepare(`
+    SELECT a.id, a.bib, a.name, a.category_id, c.name as category_name
+    FROM athletes a
+    LEFT JOIN categories c ON a.category_id = c.id
+    WHERE a.id = ? AND a.event_id = ?
+  `).get(athlete_id, req.params.id);
+  if (!athlete) return res.status(404).json({ error: '選手不存在' });
+
+  const routes = db.prepare(`
+    SELECT r.id, r.name, r.zone_id, r.top_score, r.zone_score, z.name as zone_name
+    FROM routes r
+    JOIN category_routes cr ON cr.route_id = r.id
+    LEFT JOIN zones z ON r.zone_id = z.id
+    WHERE cr.category_id = ? AND r.event_id = ?
+    ORDER BY z.name, r.id
+  `).all(athlete.category_id, req.params.id);
+
+  const scoresMap = {};
+  db.prepare('SELECT * FROM smash_scores WHERE athlete_id = ? AND event_id = ?')
+    .all(athlete_id, req.params.id)
+    .forEach(s => { scoresMap[s.route_id] = s; });
+
+  let totalScore = 0, topCount = 0, zoneCount = 0;
+  routes.forEach(r => {
+    const s = scoresMap[r.id];
+    if (s?.top) { totalScore += r.top_score; topCount++; }
+    else if (s?.zone) { totalScore += r.zone_score; zoneCount++; }
+  });
+
+  const zonesMap = {};
+  routes.forEach(r => {
+    const key = r.zone_id ?? 'null';
+    if (!zonesMap[key]) zonesMap[key] = { zone_id: r.zone_id, zone_name: r.zone_name || '未指派', routes: [] };
+    const s = scoresMap[r.id];
+    zonesMap[key].routes.push({
+      id: r.id, name: r.name, top_score: r.top_score, zone_score: r.zone_score,
+      top: s?.top ? 1 : 0, zone: s?.zone ? 1 : 0,
+      top_attempts: s?.top_attempts || 0, zone_attempts: s?.zone_attempts || 0,
+      attempts: s?.attempts || 0,
+    });
+  });
+
+  const zones = Object.values(zonesMap).sort((a, b) => {
+    if (a.zone_id === null) return 1;
+    if (b.zone_id === null) return -1;
+    return (a.zone_name || '').localeCompare(b.zone_name || '');
+  });
+
+  res.json({ athlete, total_score: totalScore, top_count: topCount, zone_count: zoneCount, zones });
 });
 
 module.exports = router;

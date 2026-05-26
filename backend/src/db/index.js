@@ -126,6 +126,9 @@ db.exec(`
   );
 `);
 
+try { db.exec('ALTER TABLE users ADD COLUMN password_plain TEXT'); } catch {}
+try { db.exec('ALTER TABLE athletes ADD COLUMN is_guaranteed INTEGER DEFAULT 0'); } catch {}
+
 db.prepare("UPDATE users SET role = 'superadmin' WHERE role = 'admin'").run();
 
 const existing = db.prepare('SELECT id FROM users WHERE username = ?').get('admin');

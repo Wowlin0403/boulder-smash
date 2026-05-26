@@ -26,7 +26,7 @@ export default function CategoryDetail() {
     { to: `/events/${id}/categories/${catId}/scoring`, label: '裁判計分', desc: '即時輸入成績' },
     { to: `/events/${id}/categories/${catId}/ranking`, label: '即時排名', desc: '查看目前排名' },
     ...(isAdmin && hasFinal ? [{ to: `/events/${id}/categories/${catId}/setup`, label: '決賽設定', desc: '決賽路線與晉級人數' }] : []),
-    ...(isAdmin ? [{ label: '匯出成績', desc: '下載 CSV（待實作）', disabled: true }] : []),
+    ...(isAdmin ? [{ to: `/events/${id}/categories/${catId}/export`, label: '匯出成績', desc: '下載 CSV' }] : []),
     { to: `/public/${id}/ranking`, label: '公開排名', desc: '觀眾顯示頁面', external: true },
   ];
 

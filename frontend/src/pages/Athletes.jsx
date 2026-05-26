@@ -5,7 +5,7 @@ import { eventsAPI } from '../api';
 import { useToast } from '../components/Toast';
 import ConfirmModal from '../components/ConfirmModal';
 
-function parseCSV(text, categories) {
+function parseCSV(text, categories, currentCatId) {
   const lines = text.trim().split(/\r?\n/);
   if (lines.length < 2) return [];
   return lines.slice(1).map((line, i) => {
@@ -18,6 +18,7 @@ function parseCSV(text, categories) {
     if (!name) errors.push('姓名空白');
     if (!rawBib) errors.push('號碼牌空白');
     if (categoryName && !cat) errors.push(`找不到組別「${categoryName}」`);
+    else if (cat && String(cat.id) !== String(currentCatId)) errors.push(`組別「${categoryName}」與當前頁面不符`);
     return { rowNum: i + 2, name: name.trim(), bib: formattedBib, categoryName: categoryName.trim(), category_id: cat?.id || null, errors };
   }).filter(r => r.name || r.bib);
 }
@@ -44,6 +45,7 @@ export default function Athletes() {
   const [importPreview, setImportPreview] = useState(null);
   const [importing, setImporting] = useState(false);
   const [confirmModal, setConfirmModal] = useState(null);
+  const [togglingId, setTogglingId] = useState(null);
 
   const load = async () => {
     const [ev, al, cl] = await Promise.all([
@@ -91,6 +93,19 @@ export default function Athletes() {
     });
   };
 
+  const handleToggleGuaranteed = async (a) => {
+    if (togglingId) return;
+    setTogglingId(a.id);
+    try {
+      const res = await eventsAPI.toggleGuaranteed(id, a.id);
+      setAthletes(prev => prev.map(x => x.id === a.id ? { ...x, is_guaranteed: res.data.is_guaranteed } : x));
+    } catch {
+      toast('操作失敗', 'error');
+    } finally {
+      setTogglingId(null);
+    }
+  };
+
   const handleEditStart = (a) => {
     setEditingId(a.id);
     setEditForm({ name: a.name, bib: a.bib });
@@ -130,7 +145,7 @@ export default function Athletes() {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = (ev) => {
-      const rows = parseCSV(ev.target.result, categories);
+      const rows = parseCSV(ev.target.result, categories, catId);
       setImportPreview(rows);
     };
     reader.readAsText(file, 'utf-8');
@@ -310,7 +325,7 @@ export default function Athletes() {
             <table className="w-full text-sm border-collapse">
               <thead>
                 <tr>
-                  {['號碼', '姓名', ''].map(h => (
+                  {['號碼', '姓名', '保證資格', ''].map(h => (
                     <th key={h} className="font-mono text-[9px] tracking-widest uppercase text-txt3 py-2 px-3 text-left border-b border-border">{h}</th>
                   ))}
                 </tr>
@@ -337,6 +352,7 @@ export default function Athletes() {
                             autoFocus
                           />
                         </td>
+                        <td className="py-1.5 px-3" />
                         <td className="py-1.5 px-3 text-right">
                           <div className="flex gap-1.5 justify-end">
                             <button
@@ -358,6 +374,20 @@ export default function Athletes() {
                       <>
                         <td className="py-2.5 px-3 font-mono text-xs text-txt3">{a.bib}</td>
                         <td className="py-2.5 px-3 font-bold text-txt">{a.name}</td>
+                        <td className="py-2.5 px-3">
+                          <button
+                            onClick={() => handleToggleGuaranteed(a)}
+                            disabled={!!togglingId}
+                            title={a.is_guaranteed ? '取消保障資格' : '設為保障名額'}
+                            className={`font-condensed font-bold text-[10px] tracking-widest uppercase px-2.5 py-1 rounded transition-colors ${
+                              a.is_guaranteed
+                                ? 'bg-lime/20 border border-lime text-lime hover:bg-lime/40'
+                                : 'border border-border2 text-txt3 hover:border-lime hover:text-lime'
+                            }`}
+                          >
+                            ★
+                          </button>
+                        </td>
                         <td className="py-2.5 px-3 text-right">
                           <div className="flex gap-1.5 justify-end">
                             <button

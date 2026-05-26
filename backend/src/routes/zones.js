@@ -5,7 +5,7 @@ const { adminOnly, requireEventOwnership } = require('../middleware/auth');
 // ── Zones ────────────────────────────────────────────────────────────────────
 
 router.get('/zones', (req, res) => {
-  res.json(db.prepare('SELECT * FROM zones WHERE event_id = ? ORDER BY id').all(req.params.id));
+  res.json(db.prepare('SELECT * FROM zones WHERE event_id = ? ORDER BY name').all(req.params.id));
 });
 
 router.post('/zones', adminOnly, requireEventOwnership, (req, res) => {
@@ -29,7 +29,7 @@ router.put('/zones/:zoneId', adminOnly, requireEventOwnership, (req, res) => {
 router.delete('/zones/:zoneId', adminOnly, requireEventOwnership, (req, res) => {
   const zone = db.prepare('SELECT id FROM zones WHERE id = ? AND event_id = ?').get(req.params.zoneId, req.params.id);
   if (!zone) return res.status(404).json({ error: '區域不存在' });
-  db.prepare('UPDATE routes SET zone_id = NULL WHERE zone_id = ?').run(req.params.zoneId);
+  db.prepare('DELETE FROM routes WHERE zone_id = ?').run(req.params.zoneId);
   db.prepare('DELETE FROM zones WHERE id = ?').run(req.params.zoneId);
   res.json({ ok: true });
 });

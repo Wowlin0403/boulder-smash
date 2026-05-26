@@ -103,23 +103,49 @@ router.delete('/:id', superadminOnly, (req, res) => {
 router.get('/judges', adminOnly, (req, res) => {
   let judges;
   if (req.user.role === 'superadmin') {
-    judges = db.prepare("SELECT id, username, active, created_at FROM users WHERE role = 'judge' ORDER BY username").all();
+    judges = db.prepare("SELECT id, username, active, password_plain, created_at FROM users WHERE role = 'judge' ORDER BY username").all();
   } else {
-    judges = db.prepare("SELECT id, username, active, created_at FROM users WHERE role = 'judge' AND organizer_id = ? ORDER BY username").all(req.user.id);
+    judges = db.prepare("SELECT id, username, active, password_plain, created_at FROM users WHERE role = 'judge' AND organizer_id = ? ORDER BY username").all(req.user.id);
   }
   res.json(judges);
 });
 
 router.post('/judges', adminOnly, (req, res) => {
-  const { username, password } = req.body;
-  if (!username || !password) return res.status(400).json({ error: '帳號與密碼必填' });
+  const { event_id } = req.body;
+  if (!event_id) return res.status(400).json({ error: 'event_id 必填' });
+
+  // 取得主辦方帳號名稱以產生密碼
+  let organizerUsername, organizerId;
+  if (req.user.role === 'organizer') {
+    organizerUsername = req.user.username;
+    organizerId = req.user.id;
+  } else {
+    const event = db.prepare('SELECT organizer_id FROM events WHERE id = ?').get(event_id);
+    if (event?.organizer_id) {
+      const org = db.prepare('SELECT username FROM users WHERE id = ?').get(event.organizer_id);
+      organizerUsername = org?.username || 'admin';
+      organizerId = event.organizer_id;
+    } else {
+      organizerUsername = 'admin';
+      organizerId = null;
+    }
+  }
+
+  // 找出此 event 目前最大的序號
+  const existing = db.prepare("SELECT username FROM users WHERE username LIKE ?").all(`e${event_id}_j%`);
+  const maxN = existing.reduce((max, u) => {
+    const match = u.username.match(/^e\d+_j(\d+)$/);
+    return match ? Math.max(max, parseInt(match[1])) : max;
+  }, 0);
+
+  const username = `e${event_id}_j${maxN + 1}`;
+  const password = `${organizerUsername}0000`;
 
   try {
     const hash = bcrypt.hashSync(password, 10);
-    const organizerId = req.user.role === 'organizer' ? req.user.id : null;
-    const judgeId = db.prepare('INSERT INTO users (username, password_hash, role, active, organizer_id) VALUES (?, ?, ?, 1, ?)')
-      .run(username, hash, 'judge', organizerId).lastInsertRowid;
-    res.status(201).json(db.prepare('SELECT id, username, active, created_at FROM users WHERE id = ?').get(judgeId));
+    const judgeId = db.prepare('INSERT INTO users (username, password_hash, role, active, organizer_id, password_plain) VALUES (?, ?, ?, 1, ?, ?)')
+      .run(username, hash, 'judge', organizerId, password).lastInsertRowid;
+    res.status(201).json(db.prepare('SELECT id, username, active, password_plain, created_at FROM users WHERE id = ?').get(judgeId));
   } catch (e) {
     if (e.message.includes('UNIQUE')) return res.status(409).json({ error: '帳號已存在' });
     throw e;

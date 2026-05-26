@@ -208,6 +208,14 @@ router.put('/:id/athletes/:athId', adminOnly, requireEventOwnership, requireUnlo
   res.json(db.prepare('SELECT * FROM athletes WHERE id = ?').get(req.params.athId));
 });
 
+router.put('/:id/athletes/:athId/guaranteed', adminOnly, requireEventOwnership, (req, res) => {
+  const ath = db.prepare('SELECT id, is_guaranteed FROM athletes WHERE id = ? AND event_id = ?').get(req.params.athId, req.params.id);
+  if (!ath) return res.status(404).json({ error: '選手不存在' });
+  const newVal = ath.is_guaranteed ? 0 : 1;
+  db.prepare('UPDATE athletes SET is_guaranteed = ? WHERE id = ?').run(newVal, req.params.athId);
+  res.json({ is_guaranteed: newVal });
+});
+
 router.delete('/:id/athletes/:athId', adminOnly, requireEventOwnership, requireUnlocked, (req, res) => {
   db.prepare('DELETE FROM athletes WHERE id = ? AND event_id = ?').run(req.params.athId, req.params.id);
   res.json({ ok: true });
@@ -217,12 +225,20 @@ router.post('/:id/athletes/bulk', adminOnly, requireEventOwnership, requireUnloc
   const { athletes } = req.body;
   if (!Array.isArray(athletes) || athletes.length === 0) return res.status(400).json({ error: '資料格式錯誤' });
 
+  const validCategoryIds = new Set(
+    db.prepare('SELECT id FROM categories WHERE event_id = ?').all(req.params.id).map(c => c.id)
+  );
+
   const imported = [], skipped = [];
   const checkBib = db.prepare('SELECT id FROM athletes WHERE event_id = ? AND category_id = ? AND bib = ?');
   const insert = db.prepare('INSERT INTO athletes (event_id, category_id, name, bib) VALUES (?, ?, ?, ?)');
 
   db.transaction(() => {
     for (const a of athletes) {
+      if (a.category_id && !validCategoryIds.has(Number(a.category_id))) {
+        skipped.push({ ...a, reason: '組別不屬於此比賽' });
+        continue;
+      }
       if (checkBib.get(req.params.id, a.category_id || null, a.bib)) {
         skipped.push({ ...a, reason: '號碼牌已存在（同組別）' });
       } else {
@@ -497,7 +513,174 @@ router.get('/:id/categories/:catId/startorder/final', (req, res) => {
 // ── CSV Export（UI 保留，功能未實作）─────────────────────────────────────────
 
 router.get('/:id/export/:round', adminOnly, requireEventOwnership, (req, res) => {
-  res.status(501).json({ error: 'CSV 匯出功能尚未實作' });
+  const { id, round } = req.params;
+  const { category_id, type = 'results' } = req.query;
+  if (!['smash', 'final'].includes(round)) return res.status(400).json({ error: '無效輪次' });
+  if (!['results', 'startorder'].includes(type)) return res.status(400).json({ error: '無效類型' });
+
+  const event = db.prepare('SELECT * FROM events WHERE id = ?').get(id);
+  const category = db.prepare('SELECT * FROM categories WHERE id = ? AND event_id = ?').get(category_id, id);
+  if (!category) return res.status(404).json({ error: '組別不存在' });
+
+  const ROUND_NAMES = { smash: '大亂鬥', final: '決賽' };
+  const TYPE_NAMES = { results: '成績', startorder: '出場序' };
+  const BOM = '﻿';
+  const toCSV = (rows) => rows.map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\r\n');
+  const infoRows = [
+    [event.name],
+    [event.date],
+    [category.name, ROUND_NAMES[round], TYPE_NAMES[type]],
+  ];
+
+  // ── Smash ──────────────────────────────────────────────────────────────────
+  if (round === 'smash') {
+    const athletesByBib = db.prepare('SELECT * FROM athletes WHERE event_id = ? AND category_id = ? ORDER BY CAST(bib AS INTEGER), bib').all(id, category_id);
+    const startOrderMap = {};
+    athletesByBib.forEach((a, i) => { startOrderMap[a.id] = i + 1; });
+
+    const categoryRoutes = db.prepare(`SELECT r.id, r.top_score, r.zone_score FROM routes r JOIN category_routes cr ON cr.route_id = r.id WHERE cr.category_id = ? AND r.event_id = ?`).all(category_id, id);
+    const smashScoresRaw = {};
+    db.prepare('SELECT * FROM smash_scores WHERE event_id = ?').all(id).forEach(s => {
+      if (!smashScoresRaw[s.athlete_id]) smashScoresRaw[s.athlete_id] = {};
+      smashScoresRaw[s.athlete_id][s.route_id] = s;
+    });
+    const dnsSet = new Set(db.prepare("SELECT athlete_id FROM dns_records WHERE event_id = ? AND round = 'smash'").all(id).map(r => r.athlete_id));
+
+    const group = athletesByBib.map(a => {
+      const routeScores = categoryRoutes.map(r => {
+        const s = smashScoresRaw[a.id]?.[r.id];
+        return { top: s?.top ? 1 : 0, zone: s?.zone ? 1 : 0, top_score: r.top_score, zone_score: r.zone_score };
+      });
+      const tops = routeScores.filter(r => r.top).length;
+      const zones = routeScores.filter(r => r.zone).length;
+      return { ...a, tops, zones, score: calcSmashScore(routeScores), is_dns: dnsSet.has(a.id) };
+    });
+    assignSmashRanks(group);
+
+    if (type === 'startorder') {
+      const header = [['出場序', '晉級', '排名', '背號', '姓名', '總Top數', '總zone數', '分數']];
+      const rows = athletesByBib.map((a, i) => [i + 1, '', '', a.bib, a.name, '', '', '']);
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      return res.send(BOM + toCSV([...infoRows, ...header, ...rows]));
+    }
+
+    // smash results — sorted by rank
+    const advancedIds = getAdvancedIds(db, id);
+    const nonDnsSorted = group.filter(a => !a.is_dns).sort((a, b) => b.score - a.score);
+    const quota = category.final_quota || 0;
+    const normalCutoffScore = quota > 0 && nonDnsSorted.length >= quota ? nonDnsSorted[quota - 1].score : null;
+
+    const sorted = [...group].sort((a, b) => (a.rank ?? 9999) - (b.rank ?? 9999));
+    const header = [['出場序', '晉級', '排名', '背號', '姓名', '總Top數', '總zone數', '分數']];
+    const rows = sorted.map(a => {
+      const is_advanced = advancedIds ? advancedIds.has(a.id) : false;
+      const advLabel = a.is_dns ? 'DNS' : (is_advanced ? 'V' : '');
+      return [
+        startOrderMap[a.id] ?? '',
+        advLabel,
+        a.is_dns ? '' : a.rank,
+        a.bib, a.name,
+        a.is_dns ? '' : a.tops,
+        a.is_dns ? '' : a.zones,
+        a.is_dns ? '' : a.score.toFixed(1),
+      ];
+    });
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    return res.send(BOM + toCSV([...infoRows, ...header, ...rows]));
+  }
+
+  // ── Final ──────────────────────────────────────────────────────────────────
+  const advancedIds = getAdvancedIds(db, id);
+  let athletesByBib = db.prepare('SELECT * FROM athletes WHERE event_id = ? AND category_id = ? ORDER BY CAST(bib AS INTEGER), bib').all(id, category_id);
+  athletesByBib = athletesByBib.filter(a => advancedIds.has(a.id));
+
+  const boulders = db.prepare("SELECT * FROM boulders WHERE category_id = ? AND round = 'final' ORDER BY number").all(category_id);
+  const scoreMap = {};
+  db.prepare("SELECT * FROM scores WHERE event_id = ? AND round = 'final'").all(id).forEach(s => {
+    if (!scoreMap[s.athlete_id]) scoreMap[s.athlete_id] = {};
+    scoreMap[s.athlete_id][s.boulder_id] = s;
+  });
+  const dnsSet = new Set(db.prepare("SELECT athlete_id FROM dns_records WHERE event_id = ? AND round = 'final'").all(id).map(r => r.athlete_id));
+  const smashRankMap = computeSmashRankMap(db, id, parseInt(category_id));
+
+  // 決賽出場序：大亂鬥名次最差者先出場
+  const startOrdered = [...athletesByBib].sort((a, b) => {
+    const ra = smashRankMap[a.id] ?? 9999;
+    const rb = smashRankMap[b.id] ?? 9999;
+    if (ra !== rb) return rb - ra;
+    return String(a.bib).localeCompare(String(b.bib), undefined, { numeric: true });
+  });
+  const finalStartOrderMap = {};
+  startOrdered.forEach((a, i) => { finalStartOrderMap[a.id] = i + 1; });
+
+  if (type === 'startorder') {
+    const h1 = ['出場序', '晉級', '排名', '背號', '姓名'];
+    boulders.forEach(b => h1.push(b.label, ''));
+    h1.push('成績', '', '', '');
+    const h2 = ['', '', '', '', ''];
+    boulders.forEach(() => h2.push('Top', 'Zone'));
+    h2.push('結果', '總Top次', '總Zone次', '分數');
+
+    const rows = startOrdered.map((a, i) => {
+      const row = [i + 1, '', '', a.bib, a.name];
+      boulders.forEach(() => row.push('', ''));
+      row.push('', '', '', '');
+      return row;
+    });
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    return res.send(BOM + toCSV([...infoRows, h1, h2, ...rows]));
+  }
+
+  // final results — dual-row header, sorted by rank
+  const group = athletesByBib.map(a => {
+    const is_dns = dnsSet.has(a.id);
+    let tops = 0, zones = 0, tAtt = 0, zAtt = 0;
+    const boulderScores = boulders.map(b => {
+      const s = scoreMap[a.id]?.[b.id];
+      if (!s) return { boulder_id: b.id, top: 0, top_attempts: 0, zone: 0, zone_attempts: 0 };
+      if (s.top) { tops++; tAtt += s.top_attempts || 1; }
+      if (s.zone) { zones++; zAtt += s.zone_attempts || 1; }
+      return { boulder_id: b.id, top: s.top ? 1 : 0, top_attempts: s.top_attempts || 0, zone: s.zone ? 1 : 0, zone_attempts: s.zone_attempts || 0 };
+    });
+    return { ...a, tops, zones, tAtt, zAtt, boulderScores, score: calcScore(boulderScores), is_dns, _smashRank: smashRankMap[a.id] ?? 9999 };
+  });
+
+  const prevRankMap = {};
+  group.forEach(a => { prevRankMap[a.id] = a._smashRank; });
+  assignRanksWithDns(group, makeCmp(prevRankMap), prevRankMap);
+
+  const sorted = [...group].sort((a, b) => (a.rank ?? 9999) - (b.rank ?? 9999));
+
+  // header row 1: 出場序, 晉級, 排名, 背號, 姓名, B1, "", B2, "", ..., 成績, "", "", ""
+  const h1 = ['出場序', '晉級', '排名', '背號', '姓名'];
+  boulders.forEach(b => h1.push(b.label, ''));
+  h1.push('成績', '', '', '');
+
+  // header row 2: "", "", "", "", "", Top, Zone, Top, Zone, ..., 結果, 總Top次, 總Zone次, 分數
+  const h2 = ['', '', '', '', ''];
+  boulders.forEach(() => h2.push('Top', 'Zone'));
+  h2.push('結果', '總Top次', '總Zone次', '分數');
+
+  const rows = sorted.map(a => {
+    const advLabel = a.is_dns ? 'DNS' : 'V';
+    const result = a.is_dns ? '' : `${a.tops}T${a.zones}Z`;
+    const row = [
+      finalStartOrderMap[a.id] ?? '',
+      advLabel,
+      a.is_dns ? '' : a.rank,
+      a.bib, a.name,
+    ];
+    boulders.forEach((b, i) => {
+      const bs = a.boulderScores[i];
+      if (a.is_dns || !bs) { row.push('', ''); return; }
+      row.push(bs.top ? bs.top_attempts : '', bs.zone ? bs.zone_attempts : '');
+    });
+    row.push(result, a.is_dns ? '' : a.tAtt, a.is_dns ? '' : a.zAtt, a.is_dns ? '' : a.score);
+    return row;
+  });
+
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  return res.send(BOM + toCSV([...infoRows, h1, h2, ...rows]));
 });
 
 module.exports = router;

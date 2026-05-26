@@ -454,8 +454,11 @@ export default function Scoring() {
       ) : (
         <div className="bg-s1 border border-border rounded-lg p-6">
           <div className="flex items-center justify-between mb-4">
-            <div className="font-condensed font-bold text-sm tracking-widest uppercase text-lime">
-              {selectedAthObj?.name} — {ROUND_NAMES[selectedRound]}
+            <div>
+              <div className="font-condensed font-bold text-sm tracking-widest uppercase text-lime">
+                {selectedAthObj?.name}
+              </div>
+              <div className="font-mono text-[10px] text-txt3 mt-0.5">{category.name} — {ROUND_NAMES[selectedRound]}</div>
             </div>
             {isAdmin && (
               <button onClick={() => setShowDnsModal(true)} disabled={locked}
@@ -473,15 +476,18 @@ export default function Scoring() {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
             {isSmash
-              ? displayRoutes.map(r => (
-                  <BoulderCard key={`${r.id}-${selectedAthlete}`} boulder={r}
-                    score={scores[r.id] || { top: false, zone: false, top_attempts: 0, zone_attempts: 0 }}
-                    onChange={newScore => handleScoreChange(r.id, newScore)}
-                    onReset={() => setResetTarget({ id: r.id, label: r.name })}
-                    attempts={attemptCounts[r.id] || 0}
-                    onAttemptsChange={val => handleAttemptsChange(r.id, val)}
-                    disabled={locked} />
-                ))
+              ? displayRoutes.map(r => {
+                  const displayName = r.zone_name ? `${r.zone_name}-${r.name}` : r.name;
+                  return (
+                    <BoulderCard key={`${r.id}-${selectedAthlete}`} boulder={{ ...r, name: displayName }}
+                      score={scores[r.id] || { top: false, zone: false, top_attempts: 0, zone_attempts: 0 }}
+                      onChange={newScore => handleScoreChange(r.id, newScore)}
+                      onReset={() => setResetTarget({ id: r.id, label: displayName })}
+                      attempts={attemptCounts[r.id] || 0}
+                      onAttemptsChange={val => handleAttemptsChange(r.id, val)}
+                      disabled={locked} />
+                  );
+                })
               : displayBoulders.map(b => (
                   <BoulderCard key={`${b.id}-${selectedAthlete}`} boulder={b}
                     score={scores[b.id] || { top: false, zone: false, top_attempts: 0, zone_attempts: 0 }}

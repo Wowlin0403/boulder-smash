@@ -15,6 +15,7 @@ export default function JudgeZoneAssignment() {
   const [judges, setJudges] = useState([]);
   const [assignments, setAssignments] = useState([]);
   const [modal, setModal] = useState(null);
+  const [newCredentials, setNewCredentials] = useState(null);
   const [confirmModal, setConfirmModal] = useState(null);
 
   const load = async () => {
@@ -52,15 +53,13 @@ export default function JudgeZoneAssignment() {
   };
 
   // Judge CRUD
-  const handleCreateJudge = async (e) => {
-    e.preventDefault();
-    const fd = new FormData(e.target);
+  const handleCreateJudge = async () => {
     try {
-      await usersAPI.createJudge({ username: fd.get('username'), password: fd.get('password') });
-      toast('裁判帳號已建立');
+      const res = await usersAPI.createJudge({ event_id: id });
       setModal(null);
-      const res = await usersAPI.listJudges();
-      setJudges(res.data);
+      setNewCredentials({ username: res.data.username, password: res.data.password_plain });
+      const jl = await usersAPI.listJudges();
+      setJudges(jl.data);
     } catch (err) {
       toast(err.response?.data?.error || '建立失敗', 'error');
     }
@@ -128,7 +127,7 @@ export default function JudgeZoneAssignment() {
         <div className="flex items-center justify-between">
           <div className="font-condensed font-bold text-sm tracking-widest uppercase text-txt3">裁判帳號</div>
           <button
-            onClick={() => setModal({ type: 'create' })}
+            onClick={handleCreateJudge}
             className="border border-cyan/30 text-cyan font-condensed font-bold text-xs tracking-widest uppercase px-4 py-2 rounded hover:bg-cyan hover:text-bg transition-colors"
           >
             ＋ 新增裁判
@@ -171,12 +170,10 @@ export default function JudgeZoneAssignment() {
                     }`}>
                     {judge.active ? '停用' : '啟用'}
                   </button>
-                  {isSuperadmin && (
-                    <button onClick={() => handleDeleteJudge(judge)}
-                      className="font-mono text-[10px] text-red border border-red/30 rounded px-2.5 py-1 hover:bg-red hover:text-white transition-colors">
-                      刪除
-                    </button>
-                  )}
+                  <button onClick={() => handleDeleteJudge(judge)}
+                    className="font-mono text-[10px] text-red border border-red/30 rounded px-2.5 py-1 hover:bg-red hover:text-white transition-colors">
+                    刪除
+                  </button>
                 </div>
               </div>
 
@@ -212,19 +209,30 @@ export default function JudgeZoneAssignment() {
         })}
       </div>
 
-      {/* Create judge modal */}
-      {modal?.type === 'create' && (
-        <Modal title="新增裁判帳號" onClose={() => setModal(null)}>
-          <form onSubmit={handleCreateJudge} className="space-y-4">
-            <Field label="帳號名稱">
-              <input name="username" required placeholder="e.g. judge_zone1" className={inputCls} autoFocus />
-            </Field>
-            <Field label="初始密碼">
-              <input name="password" type="password" required placeholder="輸入密碼" className={inputCls} />
-            </Field>
-            <ModalFooter onClose={() => setModal(null)} submitLabel="建立" />
-          </form>
-        </Modal>
+      {/* New credentials modal */}
+      {newCredentials && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+          <div className="bg-s1 border border-border rounded-xl p-7 w-[400px]">
+            <div className="font-condensed font-bold text-sm tracking-widest uppercase text-lime mb-5">裁判帳號已建立</div>
+            <div className="space-y-3 mb-6">
+              <div>
+                <div className="font-mono text-[10px] tracking-widest uppercase text-txt3 mb-1">帳號</div>
+                <div className="bg-bg border border-border rounded-lg px-4 py-2.5 font-mono text-sm text-lime tracking-wider">{newCredentials.username}</div>
+              </div>
+              <div>
+                <div className="font-mono text-[10px] tracking-widest uppercase text-txt3 mb-1">預設密碼</div>
+                <div className="bg-bg border border-border rounded-lg px-4 py-2.5 font-mono text-sm text-cyan tracking-widest">{newCredentials.password}</div>
+              </div>
+            </div>
+            <div className="text-txt3 font-mono text-[11px] mb-5">請將帳號密碼交給裁判，密碼可於之後重設。</div>
+            <div className="flex justify-end">
+              <button onClick={() => setNewCredentials(null)}
+                className="font-condensed font-bold text-[11px] tracking-widest uppercase border border-lime/30 text-lime px-5 py-2 rounded hover:bg-lime hover:text-bg transition-colors">
+                確認
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Reset password modal */}

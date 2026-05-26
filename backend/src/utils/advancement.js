@@ -7,7 +7,7 @@ function getRounds(n) {
 function getAdvancedIds(db, eventId) {
   const categories = db.prepare('SELECT * FROM categories WHERE event_id = ?').all(eventId);
 
-  const athletes = db.prepare('SELECT id, category_id FROM athletes WHERE event_id = ?').all(eventId);
+  const athletes = db.prepare('SELECT id, category_id, is_guaranteed FROM athletes WHERE event_id = ?').all(eventId);
 
   const smashScores = {};
   db.prepare('SELECT * FROM smash_scores WHERE event_id = ?').all(eventId).forEach(s => {
@@ -38,6 +38,11 @@ function getAdvancedIds(db, eventId) {
       WHERE cr.category_id = ? AND r.event_id = ?
     `).all(catId, eventId);
 
+    const dnsIds = new Set(
+      db.prepare("SELECT athlete_id FROM dns_records WHERE event_id = ? AND round = 'smash'")
+        .all(eventId).map(r => r.athlete_id)
+    );
+
     const ranked = group.map(a => {
       const routeScores = categoryRoutes.map(r => {
         const s = smashScores[a.id]?.[r.id];
@@ -48,7 +53,7 @@ function getAdvancedIds(db, eventId) {
           zone_score: r.zone_score,
         };
       });
-      return { id: a.id, score: calcSmashScore(routeScores) };
+      return { id: a.id, score: calcSmashScore(routeScores), is_guaranteed: a.is_guaranteed };
     });
 
     ranked.sort((a, b) => b.score - a.score);
@@ -62,6 +67,13 @@ function getAdvancedIds(db, eventId) {
     for (const a of ranked) {
       if (a.score >= cutoffScore) advancedIds.add(a.id);
       else break;
+    }
+
+    // 保障名額：非 DNS 的保障選手中最高分者（若尚未在晉級名單）
+    const nonDnsGuaranteed = ranked.filter(a => a.is_guaranteed && !dnsIds.has(a.id));
+    if (nonDnsGuaranteed.length > 0) {
+      const maxScore = Math.max(...nonDnsGuaranteed.map(a => a.score));
+      nonDnsGuaranteed.filter(a => a.score === maxScore).forEach(a => advancedIds.add(a.id));
     }
   });
 

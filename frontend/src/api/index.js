@@ -57,7 +57,7 @@ export const eventsAPI = {
   getDns: (id, round) => api.get(`/events/${id}/dns`, { params: { round } }),
   markDns: (id, data) => api.post(`/events/${id}/dns`, data),
   cancelDns: (id, data) => api.delete(`/events/${id}/dns`, { data }),
-  exportCSV: (id, round, categoryId) => api.get(`/events/${id}/export/${round}`, { params: { category_id: categoryId }, responseType: 'blob' }),
+  exportCSV: (id, round, categoryId, type) => api.get(`/events/${id}/export/${round}`, { params: { category_id: categoryId, type }, responseType: 'blob' }),
   getZones: (id) => api.get(`/events/${id}/zones`),
   createZone: (id, data) => api.post(`/events/${id}/zones`, data),
   updateZone: (id, zoneId, data) => api.put(`/events/${id}/zones/${zoneId}`, data),
@@ -73,6 +73,7 @@ export const eventsAPI = {
   getMyZones: (id) => api.get(`/events/${id}/my-zones`),
   bulkImportRoutes: (id, rows) => api.post(`/events/${id}/routes/bulk`, { rows }),
   clearAllZones: (id) => api.delete(`/events/${id}/zones`),
+  toggleGuaranteed: (id, athId) => api.put(`/events/${id}/athletes/${athId}/guaranteed`, {}),
 };
 
 const publicApi = axios.create({
@@ -85,6 +86,8 @@ export const publicAPI = {
   getCategories: (id) => publicApi.get(`/events/${id}/categories`),
   getSmashRanking: (id) => publicApi.get(`/events/${id}/ranking/smash`),
   getFinalRanking: (id) => publicApi.get(`/events/${id}/ranking/final`),
+  getAthletes: (id) => publicApi.get(`/events/${id}/athletes`),
+  getAthleteScores: (id, athleteId) => publicApi.get(`/events/${id}/athlete-scores`, { params: { athlete_id: athleteId } }),
 };
 
 export const usersAPI = {

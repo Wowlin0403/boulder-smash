@@ -11,6 +11,7 @@ import Scoring from './pages/Scoring';
 import Ranking from './pages/Ranking';
 import Export from './pages/Export';
 import PublicRanking from './pages/PublicRanking';
+import PublicAthleteScores from './pages/PublicAthleteScores';
 import AccountManagement from './pages/AccountManagement';
 import ZoneManagement from './pages/ZoneManagement';
 import JudgeZoneAssignment from './pages/JudgeZoneAssignment';
@@ -42,6 +43,7 @@ export default function App() {
           <Route path="/events/:id/categories/:catId/export" element={<PrivateRoute requireAdmin><Export /></PrivateRoute>} />
           <Route path="/admin/accounts" element={<PrivateRoute requireSuperadmin><AccountManagement /></PrivateRoute>} />
           <Route path="/public/:id/ranking" element={<PublicRanking />} />
+          <Route path="/public/:id/scores" element={<PublicAthleteScores />} />
           <Route path="*" element={<Navigate to="/events" replace />} />
         </Routes>
       </BrowserRouter>

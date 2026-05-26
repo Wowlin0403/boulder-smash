@@ -29,16 +29,18 @@ export default function Export() {
   const handleExport = async () => {
     setLoading(true);
     try {
-      const res = await eventsAPI.exportCSV(id, round, catId);
-      const url = URL.createObjectURL(res.data);
+      const res = await eventsAPI.exportCSV(id, round, catId, type);
+      const url = URL.createObjectURL(new Blob([res.data], { type: 'text/csv;charset=utf-8;' }));
       const a = document.createElement('a');
       a.href = url;
       a.download = `${TYPE_NAMES[type]}_${category?.name}_${ROUND_NAMES[round]}_${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a);
       a.click();
+      document.body.removeChild(a);
       URL.revokeObjectURL(url);
       toast('CSV 已匯出');
-    } catch {
-      toast('匯出失敗', 'error');
+    } catch (err) {
+      toast(err.response?.data?.error || '匯出失敗', 'error');
     } finally {
       setLoading(false);
     }
