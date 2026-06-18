@@ -145,10 +145,13 @@ export default function Athletes() {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = (ev) => {
-      const rows = parseCSV(ev.target.result, categories, catId);
+      const buf = ev.target.result;
+      let text = new TextDecoder('utf-8').decode(buf);
+      if (text.includes('�')) text = new TextDecoder('big5').decode(buf);
+      const rows = parseCSV(text, categories, catId);
       setImportPreview(rows);
     };
-    reader.readAsText(file, 'utf-8');
+    reader.readAsArrayBuffer(file);
     e.target.value = '';
   };
 
