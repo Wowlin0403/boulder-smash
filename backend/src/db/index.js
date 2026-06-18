@@ -129,6 +129,9 @@ db.exec(`
 try { db.exec('ALTER TABLE users ADD COLUMN password_plain TEXT'); } catch {}
 try { db.exec('ALTER TABLE athletes ADD COLUMN is_guaranteed INTEGER DEFAULT 0'); } catch {}
 
+// 清除沒有組別的孤立選手（含其成績、DNS 記錄）
+db.prepare('DELETE FROM athletes WHERE category_id IS NULL').run();
+
 db.prepare("UPDATE users SET role = 'superadmin' WHERE role = 'admin'").run();
 
 const existing = db.prepare('SELECT id FROM users WHERE username = ?').get('admin');

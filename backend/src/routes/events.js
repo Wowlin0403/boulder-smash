@@ -162,6 +162,7 @@ router.put('/:id/categories/:catId', adminOnly, requireEventOwnership, requireUn
 });
 
 router.delete('/:id/categories/:catId', adminOnly, requireEventOwnership, requireUnlocked, (req, res) => {
+  db.prepare('DELETE FROM athletes WHERE category_id = ? AND event_id = ?').run(req.params.catId, req.params.id);
   db.prepare('DELETE FROM categories WHERE id = ? AND event_id = ?').run(req.params.catId, req.params.id);
   res.json({ ok: true });
 });

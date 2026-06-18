@@ -77,7 +77,7 @@ router.get('/events/:id/ranking/smash', (req, res) => {
     group.forEach(a => {
       const is_advanced = advancedIds ? advancedIds.has(a.id) : false;
       const normallyAdvanced = normalCutoffScore !== null && !a.is_dns && a.score >= normalCutoffScore;
-      const is_guaranteed_advanced = is_advanced && !normallyAdvanced;
+      const is_guaranteed_advanced = quota > 0 && is_advanced && !normallyAdvanced;
 
       result.push({
         rank: a.rank,
