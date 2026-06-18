@@ -51,13 +51,18 @@ export default function PublicAthleteScores() {
     publicAPI.getAthletes(id).then(r => setAthletes(r.data)).catch(() => {});
   }, [id]);
 
-  useEffect(() => {
-    if (!selectedId) { setData(null); return; }
+  const fetchScores = () => {
+    if (!selectedId) return;
     setLoading(true);
     publicAPI.getAthleteScores(id, selectedId)
       .then(r => setData(r.data))
       .catch(() => setData(null))
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    if (!selectedId) { setData(null); return; }
+    fetchScores();
   }, [selectedId, id]);
 
   return (
@@ -98,8 +103,14 @@ export default function PublicAthleteScores() {
         {data && !loading && (
           <>
             <div className="bg-s1 border border-border rounded-lg px-6 py-5 mb-8">
-              <div className="font-mono text-[10px] tracking-widest uppercase text-txt3 mb-3">
-                {data.athlete.category_name} — {data.athlete.bib} {data.athlete.name}
+              <div className="flex items-center justify-between mb-3">
+                <div className="font-mono text-[10px] tracking-widest uppercase text-txt3">
+                  {data.athlete.category_name} — {data.athlete.bib} {data.athlete.name}
+                </div>
+                <button onClick={fetchScores}
+                  className="font-mono text-xs text-txt3 border border-border rounded px-2.5 py-1 hover:border-cyan hover:text-cyan transition-colors">
+                  ↻ 刷新
+                </button>
               </div>
               <div className="flex flex-wrap gap-8 items-end">
                 <div>
