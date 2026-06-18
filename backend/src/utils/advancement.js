@@ -69,11 +69,24 @@ function getAdvancedIds(db, eventId) {
       else break;
     }
 
-    // 保障名額：非 DNS 的保障選手中最高分者（若尚未在晉級名單）
+    // 保障名額：非 DNS 的保障選手中最高分者（含同分並列）
     const nonDnsGuaranteed = ranked.filter(a => a.is_guaranteed && !dnsIds.has(a.id));
     if (nonDnsGuaranteed.length > 0) {
       const maxScore = Math.max(...nonDnsGuaranteed.map(a => a.score));
-      nonDnsGuaranteed.filter(a => a.score === maxScore).forEach(a => advancedIds.add(a.id));
+      const topGuaranteed = nonDnsGuaranteed.filter(a => a.score === maxScore && !advancedIds.has(a.id));
+
+      if (topGuaranteed.length > 0) {
+        const advancedInCat = ranked.filter(a => advancedIds.has(a.id) && !dnsIds.has(a.id));
+        const minScore = Math.min(...advancedInCat.map(a => a.score));
+        const atMinScore = advancedInCat.filter(a => a.score === minScore);
+
+        if (atMinScore.length === 1) {
+          // 末位唯一：踢掉末位（無論幾位保障選手，只踢一位）
+          advancedIds.delete(atMinScore[0].id);
+        }
+        // 末位同分 / tie 擴充：不踢人，保障選手全部額外加入
+        topGuaranteed.forEach(a => advancedIds.add(a.id));
+      }
     }
   });
 
