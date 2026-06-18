@@ -17,6 +17,7 @@ export default function JudgeZoneAssignment() {
   const [modal, setModal] = useState(null);
   const [newCredentials, setNewCredentials] = useState(null);
   const [confirmModal, setConfirmModal] = useState(null);
+  const [editingName, setEditingName] = useState(null); // { id, value }
 
   const load = async () => {
     const [ev, zl, jl, al] = await Promise.all([
@@ -88,6 +89,20 @@ export default function JudgeZoneAssignment() {
     }
   };
 
+  const handleRenameJudge = async (judge) => {
+    const newName = editingName.value.trim();
+    if (!newName) return;
+    if (newName === judge.username) { setEditingName(null); return; }
+    try {
+      await usersAPI.renameJudge(judge.id, newName);
+      setJudges(prev => prev.map(j => j.id === judge.id ? { ...j, username: newName } : j));
+      setEditingName(null);
+      toast('名稱已更新');
+    } catch (err) {
+      toast(err.response?.data?.error || '更新失敗', 'error');
+    }
+  };
+
   const handleDeleteJudge = (judge) => {
     setConfirmModal({
       message: `刪除裁判「${judge.username}」？`,
@@ -147,10 +162,34 @@ export default function JudgeZoneAssignment() {
               <div className="flex items-center gap-3 mb-4">
                 <div className="flex-1">
                   <div className="flex items-center gap-2">
-                    <span className="font-mono text-sm text-txt">{judge.username}</span>
-                    <span className={`font-mono text-[10px] px-2 py-0.5 rounded border ${judge.active ? 'border-cyan/30 text-cyan' : 'border-border text-txt3'}`}>
-                      {judge.active ? '啟用' : '停用'}
-                    </span>
+                    {editingName?.id === judge.id ? (
+                      <>
+                        <input
+                          autoFocus
+                          value={editingName.value}
+                          onChange={e => setEditingName(v => ({ ...v, value: e.target.value }))}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') handleRenameJudge(judge);
+                            if (e.key === 'Escape') setEditingName(null);
+                          }}
+                          className="bg-bg border border-cyan rounded px-2 py-0.5 font-mono text-sm text-txt w-40 focus:outline-none"
+                        />
+                        <button onClick={() => handleRenameJudge(judge)} className="text-cyan hover:text-lime text-sm transition-colors">✓</button>
+                        <button onClick={() => setEditingName(null)} className="text-txt3 hover:text-txt text-sm transition-colors">✕</button>
+                      </>
+                    ) : (
+                      <>
+                        <span className="font-mono text-sm text-txt">{judge.username}</span>
+                        <button
+                          onClick={() => setEditingName({ id: judge.id, value: judge.username })}
+                          className="text-txt3 hover:text-txt transition-colors text-xs leading-none"
+                          title="編輯名稱"
+                        >✎</button>
+                        <span className={`font-mono text-[10px] px-2 py-0.5 rounded border ${judge.active ? 'border-cyan/30 text-cyan' : 'border-border text-txt3'}`}>
+                          {judge.active ? '啟用' : '停用'}
+                        </span>
+                      </>
+                    )}
                   </div>
                   {judge.organizer_username && (
                     <div className="font-mono text-[10px] text-txt3 mt-0.5">隸屬：{judge.organizer_username}</div>

@@ -100,6 +100,7 @@ export const usersAPI = {
   changeMyPassword: (currentPassword, newPassword) => api.put('/users/self/change-password', { currentPassword, newPassword }),
   listJudges: () => api.get('/users/judges'),
   createJudge: (data) => api.post('/users/judges', data),
+  renameJudge: (id, username) => api.put(`/users/judges/${id}/username`, { username }),
   setJudgePassword: (id, password) => api.put(`/users/judges/${id}/password`, { password }),
   toggleJudgeActive: (id, active) => api.put(`/users/judges/${id}/active`, { active }),
   deleteJudge: (id) => api.delete(`/users/judges/${id}`),

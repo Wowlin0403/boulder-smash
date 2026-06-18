@@ -152,6 +152,19 @@ router.post('/judges', adminOnly, (req, res) => {
   }
 });
 
+router.put('/judges/:id/username', adminOnly, (req, res) => {
+  const { username } = req.body;
+  if (!username || !username.trim()) return res.status(400).json({ error: '名稱不能為空' });
+  const judge = db.prepare("SELECT id, organizer_id FROM users WHERE id = ? AND role = 'judge'").get(req.params.id);
+  if (!judge) return res.status(404).json({ error: '裁判不存在' });
+  if (req.user.role === 'organizer' && judge.organizer_id !== req.user.id)
+    return res.status(403).json({ error: '無權限' });
+  const conflict = db.prepare('SELECT id FROM users WHERE username = ? AND id != ?').get(username.trim(), req.params.id);
+  if (conflict) return res.status(409).json({ error: '此名稱已被使用' });
+  db.prepare('UPDATE users SET username = ? WHERE id = ?').run(username.trim(), req.params.id);
+  res.json({ username: username.trim() });
+});
+
 router.put('/judges/:id/password', adminOnly, (req, res) => {
   const { password } = req.body;
   if (!password) return res.status(400).json({ error: '密碼必填' });
